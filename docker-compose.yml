@@ -1,0 +1,90 @@
+services:
+  # Serviço do banco de dados MySQL
+  mysql:
+    image: mysql:9.2
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_INITDB_SKIP_TZINFO: 1
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+    ports:
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e 'SELECT 1' ${MYSQL_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Serviço do backend
+  backend:
+    build:
+      context: ./backend
+      args:
+        BACKEND_PORT: 5070
+    container_name: backend
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      JWT_SECRET: ${JWT_SECRET}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - '5070:5070'
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+
+  # Serviço do site frontend
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        FRONTEND_PORT: 3070
+    container_name: frontend
+    environment:
+      FRONTEND_PORT: 3070
+    ports:
+      - '3070:3070'
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    volumes:
+      - ./frontend:/app
+
+  # Serviço do NGINX para rotear as solicitações
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - '8070:80'
+    networks:
+      - app-network
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  mysql-data:
+
+networks:
+  app-network:
+    driver: bridge
